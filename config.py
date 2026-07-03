@@ -12,14 +12,14 @@ MODE_EMISSION_FACTORS = {
 }
 
 # Token conversion
-CO2_To_Token_RATE = 5
+CO2_TO_TOKEN_RATE = 5
 
 # Historical Baseline Model
 HISTORICAL_WINDOW_DAYS = 14
 MIN_TRIPS_FOR_HISTORICAL_BASELINE = 3
 
 # Matched Trip Baseline Model
-MIN_TRANSPORT_MODES = 2
+MIN_MODES_FOR_MATCH = 2
 
 # Engagement Model
 ENGAGEMENT_START = 0.5
