@@ -113,6 +113,17 @@ def hybrid_waterfall(trip: Trip, history: List[Trip]) -> Optional[float]:
     """
     Priority: matched-trip (most accurate, controls for route) > historical
     (personalized) > counterfactual (always available, fallback of last resort).
+
+    KNOWN BEHAVIOR (not a bug - a real design tradeoff worth flagging to stakeholders):
+    For zero-emission modes (walk/bike), historical and matched-trip will often
+    return exactly 0.0 once they have enough data, because there is no *marginal*
+    improvement left to detect against the user's own already-green history. Since
+    0.0 is a valid computed value (not None), the waterfall latches onto it and never
+    falls back to counterfactual - meaning already-sustainable users can get starved
+    of ongoing reward under this priority order, even though they remain low-carbon.
+    This is arguably correct per the models' own definitions (they measure marginal
+    improvement, not absolute impact) - but it is a real engagement risk worth
+    discussing with the team, not something to silently "fix" by hiding it.
     """
     matched = matched_trip_baseline(trip, history)
     if matched is not None:

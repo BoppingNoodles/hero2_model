@@ -136,6 +136,53 @@ def summarize_results(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(summaries).sort_values(["persona", "model"])
 
 
+def run_multi_seed_experiment(
+    n_seeds: int = 10,
+    n_days: int = SIMULATION_DAYS,
+    models: List[str] = None,
+    reward_feedback_personas: List[str] = None,
+    base_seed: int = RANDOM_SEED,
+) -> pd.DataFrame:
+    """
+    Runs the full persona x model matrix multiple times with different random seeds,
+    then averages the summary metrics across seeds. This is what makes the "which
+    model is best" conclusion defensible - a single seed is one possible timeline,
+    not a reliable estimate. Returns a persona x model table with mean and std
+    for each headline metric, so you can see how much a result varies run to run.
+    """
+    models = models or list(MODEL_REGISTRY.keys())
+    reward_feedback_personas = reward_feedback_personas or ["reward_motivated"]
+
+    all_summaries = []
+    for seed_offset in range(n_seeds):
+        seed = base_seed + seed_offset
+        run_results = []
+        for persona in PERSONAS:
+            for model_name in models:
+                use_feedback = persona.name in reward_feedback_personas
+                df = simulate_persona_with_model(
+                    persona, model_name, n_days=n_days, seed=seed, reward_feedback=use_feedback
+                )
+                run_results.append(df)
+        run_df = pd.concat(run_results, ignore_index=True)
+        run_summary = summarize_results(run_df)
+        run_summary["seed"] = seed
+        all_summaries.append(run_summary)
+
+    combined = pd.concat(all_summaries, ignore_index=True)
+
+    agg = combined.groupby(["persona", "model"]).agg(
+        total_tokens_mean=("total_tokens", "mean"),
+        total_tokens_std=("total_tokens", "std"),
+        avg_engagement_last_14d_mean=("avg_engagement_last_14d", "mean"),
+        avg_engagement_last_14d_std=("avg_engagement_last_14d", "std"),
+        max_streak_mean=("max_streak", "mean"),
+        max_streak_std=("max_streak", "std"),
+    ).reset_index()
+
+    return agg.sort_values(["persona", "avg_engagement_last_14d_mean"], ascending=[True, False])
+
+
 if __name__ == "__main__":
     import os
 
@@ -148,5 +195,11 @@ if __name__ == "__main__":
 
     summary = summarize_results(results)
     summary.to_csv("results/experiment_summary.csv", index=False)
-    print("\nSummary (total tokens, engagement, streaks by persona x model):")
+    print("\nSingle-seed summary (total tokens, engagement, streaks by persona x model):")
     print(summary.to_string(index=False))
+
+    print("\nRunning multi-seed experiment (10 seeds) for a more reliable comparison...")
+    multi_seed_summary = run_multi_seed_experiment(n_seeds=10)
+    multi_seed_summary.to_csv("results/experiment_summary_multiseed.csv", index=False)
+    print("\nMulti-seed summary (mean +/- std across 10 seeds):")
+    print(multi_seed_summary.to_string(index=False))

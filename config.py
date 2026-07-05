@@ -5,6 +5,7 @@ CAR_EMISSION_FACTOR_KG_PER_KM = 0.18
 
 MODE_EMISSION_FACTORS = {
     "car": 0.18,
+    "carpool": 0.09,
     "bus": 0.05,
     "train": 0.04,
     "bike": 0.0,
