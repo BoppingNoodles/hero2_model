@@ -1,18 +1,31 @@
 """
-Synthetic user archetypes (simulated data)
+personas.py
+Defines synthetic user archetypes for TRANSPORT MODE BEHAVIOR. Pure data - no simulation logic here.
 
-Each persona includes:
-- mode_probs: probablity distribution over transport modes on a given trip
+IMPORTANT - this is one of TWO layers of "who the user is" in this simulation:
+- personas.py (this file): WHAT the user does - transport mode mix, trip frequency, routes
+- archetypes.py: WHY the user is motivated - reward sensitivity, gamification sensitivity,
+  habit formation, response to incentives tapering
+
+The macro/micro simulations run every persona x archetype combination (5 x 5 = 25 synthetic
+user types) so that "a Gamer who mostly carpools" and "a Mover who mostly carpools" can be
+compared side by side, not just "carpooler" as a single monolithic user type.
+
+Each persona specifies:
+- mode_probs: probability distribution over transport modes on a given trip
 - trip_frequency: probability of taking a trip on any given day
-- od_pool_size: number of origin_destination paris the user regularly visits
-- baseline_mode: the mode the user defaults to
-- starting_engagement; initial engagement score override
+- od_pool_size: number of distinct origin-destination pairs this user regularly visits
+                (smaller pool = more repeat OD pairs = matched-trip model activates sooner)
+- baseline_mode: the mode this user would default to absent the app (used for "ground truth"
+                 counterfactual comparison in analysis, AND as the proxy for whether a given
+                 trip counts as an "additional"/incremental trip in the macro simulation)
+- starting_engagement: initial engagement score override (optional, defaults to config value)
 """
 
 from dataclasses import dataclass, field
 from typing import Dict
- 
- 
+
+
 @dataclass
 class Persona:
     name: str
@@ -22,12 +35,12 @@ class Persona:
     baseline_mode: str
     distance_km_range: tuple          # (min, max) trip distance, sampled uniformly
     starting_engagement: float = None  # None -> use config default
- 
+
     def __post_init__(self):
         total = sum(self.mode_probs.values())
         assert abs(total - 1.0) < 1e-6, f"{self.name} mode_probs must sum to 1.0, got {total}"
- 
- 
+
+
 PERSONAS = [
     Persona(
         name="walker_biker",
@@ -74,8 +87,8 @@ PERSONAS = [
         starting_engagement=0.5,
     ),
 ]
- 
- 
+
+
 def get_persona(name: str) -> Persona:
     for p in PERSONAS:
         if p.name == name:

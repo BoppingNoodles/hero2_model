@@ -1,28 +1,27 @@
 """
 engagement_model.py
-Simulates how a synthetic user's engagement evolves in response to tokens earned.
+Simulates how a synthetic user's engagement evolves in response to Power earned.
 
-This is the layer that turns "tokens earned" into "likelihood of continuing to engage" -
-there is no real data behind this, so the logic here is an explicit, documented set of
-assumptions grounded in the behavioral-science language already used in the Token
-Framework Proposal (immediate reinforcement, streaks, near-goal boosts, drop-off
-reduction). Treat the constants in config.py as the knobs for sensitivity analysis -
-that's the point of this being a separate, simple module rather than baked into the
-trip generator.
+EXTENDED from v1 to incorporate:
+1. Archetype-specific sensitivities: reward_sensitivity scales the effect of
+   verification+improvement Power; gamification_sensitivity scales the effect of
+   challenge Power. These are evaluated SEPARATELY, per the team's request to test
+   whether gamification alone can sustain engagement independent of token value.
+2. Habit conversion: after a long enough streak, a user may "convert" to intrinsically
+   motivated/habitual behavior, after which daily decay is reduced.
+3. Redemption tapering: a separate multiplier that shrinks the effective value of
+   verification+improvement Power over time (simulating redeemable rewards losing
+   value), while challenge Power is unaffected - this is what lets us test whether
+   gamification mechanics alone can hold engagement up as real rewards shrink.
 
-Model summary:
-- engagement score in [0, 1], starts at ENGAGEMENT_START (or persona override)
-- each day WITHOUT a rewarded trip: engagement decays by ENGAGEMENT_DECAY_PER_DAY
-- each day WITH a rewarded trip: engagement gains, scaled by tokens earned with
-  diminishing returns (saturating gain), boosted further while on an active streak
-- engagement score is converted to a trip probability for the NEXT day, which the
-  experiment runner feeds back into trip generation frequency
+None of this is calibrated to real data - see README for how to treat these results.
 """
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List
 
+from archetypes import Archetype
 from config import (
     ENGAGEMENT_START,
     ENGAGEMENT_DECAY_PER_DAY,
@@ -31,6 +30,11 @@ from config import (
     STREAK_BONUS_MULTIPLIER,
     MIN_TRIP_PROBABILITY,
     MAX_TRIP_PROBABILITY,
+    HABIT_CONVERSION_STREAK_THRESHOLD,
+    HABIT_DECAY_REDUCTION_FACTOR,
+    REDEMPTION_TAPER_START_DAY,
+    REDEMPTION_TAPER_END_DAY,
+    REDEMPTION_TAPER_FLOOR,
 )
 
 
@@ -38,36 +42,93 @@ from config import (
 class EngagementState:
     engagement: float
     streak_days: int = 0
+    is_habitual: bool = False
     history: List[float] = field(default_factory=list)  # engagement score per day, for plotting
 
     def record(self):
         self.history.append(self.engagement)
 
 
-def engagement_gain(tokens_earned: float) -> float:
-    """
-    Diminishing-returns gain from tokens earned in a day. Uses a bounded saturation
-    curve so a 50-token day doesn't give 5x the engagement boost of a 10-token day -
-    consistent with the proposal's use of milestone tiers rather than pure linear scaling.
-    Approaches a max gain per day as tokens_earned grows large.
-    """
-    if tokens_earned <= 0:
+def _saturating_gain(value: float, saturation: float) -> float:
+    """Shared diminishing-returns curve used for both reward-driven and gamification-driven gain."""
+    if value <= 0:
         return 0.0
-    max_gain = ENGAGEMENT_REWARD_GAIN * 5  # cap on how much a single day can move engagement
-    return max_gain * (1 - math.exp(-tokens_earned / ENGAGEMENT_REWARD_GAIN_SATURATION))
+    max_gain = ENGAGEMENT_REWARD_GAIN * 5
+    return max_gain * (1 - math.exp(-value / saturation))
 
 
-def step_engagement(state: EngagementState, tokens_earned_today: float, had_trip_today: bool) -> EngagementState:
-    """Advance engagement state by one simulated day."""
-    if had_trip_today and tokens_earned_today > 0:
+def redemption_value_multiplier(day: int) -> float:
+    """
+    Returns the current multiplier on redeemable (verification+improvement) Power's
+    effective value, simulating the "redeemable rewards taper" scenario. Ramps
+    linearly from 1.0 down to REDEMPTION_TAPER_FLOOR between the configured start
+    and end days, then holds at the floor. Returns 1.0 (no taper) before the start day.
+    Used only in the tapering experiment - the macro/baseline-sweep runs hold this at 1.0.
+    """
+    if day < REDEMPTION_TAPER_START_DAY:
+        return 1.0
+    if day >= REDEMPTION_TAPER_END_DAY:
+        return REDEMPTION_TAPER_FLOOR
+    progress = (day - REDEMPTION_TAPER_START_DAY) / (REDEMPTION_TAPER_END_DAY - REDEMPTION_TAPER_START_DAY)
+    return 1.0 - progress * (1.0 - REDEMPTION_TAPER_FLOOR)
+
+
+def step_engagement(
+    state: EngagementState,
+    verification_power: float,
+    improvement_power: float,
+    challenge_power: float,
+    had_trip_today: bool,
+    archetype: Archetype,
+    taper_multiplier: float = 1.0,
+) -> EngagementState:
+    """
+    Advance engagement state by one simulated day.
+
+    Reward-driven Power (verification + improvement) and gamification-driven Power
+    (challenge) are evaluated as two SEPARATE gain terms, each scaled by the archetype's
+    corresponding sensitivity, then combined. taper_multiplier (from
+    redemption_value_multiplier) discounts only the reward-driven term - challenge Power
+    is deliberately unaffected, since streaks/leaderboards/milestones don't depend on
+    redeemable value.
+    """
+    reward_power_today = (verification_power + improvement_power) * taper_multiplier
+    had_any_power_today = had_trip_today and (verification_power + improvement_power + challenge_power) > 0
+
+    if had_any_power_today:
         state.streak_days += 1
-        gain = engagement_gain(tokens_earned_today)
+
+        reward_gain = _saturating_gain(reward_power_today, ENGAGEMENT_REWARD_GAIN_SATURATION) * archetype.reward_sensitivity
+        gamification_gain = _saturating_gain(challenge_power, ENGAGEMENT_REWARD_GAIN_SATURATION) * archetype.gamification_sensitivity
+        gain = reward_gain + gamification_gain
+
         if state.streak_days >= 3:
             gain *= STREAK_BONUS_MULTIPLIER
+
         state.engagement = min(1.0, state.engagement + gain)
+
+        # Habit conversion check: once on a long enough streak, roll a daily chance
+        # of converting to intrinsically-motivated/habitual behavior.
+        if not state.is_habitual and state.streak_days >= HABIT_CONVERSION_STREAK_THRESHOLD:
+            import random
+            if random.random() < archetype.habit_conversion_probability:
+                state.is_habitual = True
     else:
         state.streak_days = 0
-        state.engagement = max(0.0, state.engagement - ENGAGEMENT_DECAY_PER_DAY)
+        decay = ENGAGEMENT_DECAY_PER_DAY
+
+        # Post-incentive decay: while redemption value is tapered, decay is scaled by
+        # the archetype's post_incentive_decay_multiplier (reward-dependent archetypes
+        # decay faster; gamification/impact-driven archetypes decay slower).
+        if taper_multiplier < 1.0:
+            decay *= archetype.post_incentive_decay_multiplier
+
+        # Habitual users decay more slowly regardless of taper - intrinsic motivation
+        # partially insulates them from missing a reward on any given day.
+        if state.is_habitual:
+            decay *= HABIT_DECAY_REDUCTION_FACTOR
+
+        state.engagement = max(0.0, state.engagement - decay)
 
     state.record()
     return state
@@ -76,10 +137,8 @@ def step_engagement(state: EngagementState, tokens_earned_today: float, had_trip
 def engagement_to_trip_probability(engagement: float, base_frequency: float) -> float:
     """
     Converts current engagement score into tomorrow's trip probability, anchored
-    around the persona's base trip frequency. Engagement acts as a multiplier on top
-    of the base rate, clipped to a sane range so no user is ever at 0% or 100%.
+    around the persona's base trip frequency.
     """
-    # engagement of 0.5 = neutral (no change to base rate); above/below scales it
     multiplier = 0.5 + engagement  # ranges 0.5 to 1.5 as engagement goes 0 to 1
     prob = base_frequency * multiplier
     return max(MIN_TRIP_PROBABILITY, min(MAX_TRIP_PROBABILITY, prob))
