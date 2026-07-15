@@ -91,9 +91,3 @@ This is a direct answer to the team's core question: gamification mechanics (str
 - **Habit conversion (21-day streak threshold) is a commonly cited but contested heuristic**, not validated for this specific app or user base.
 - **The later "session-level" model** (when users open the app, per-interaction Power timing) was intentionally not built yet, per the team's own instruction that it should estimate parameters for this macro model rather than be built in parallel.
 
-## Suggested next steps
-
-1. If the team wants to push baseline factor higher than 25% for cost reasons, `reward_motivated` and `carpooler` personas are the ones to watch most closely for engagement decline (Result 5).
-2. Consider running the taper experiment at a couple of different baseline factors (not just 25%) to see whether a softer or harder reward baseline changes how much gamification can compensate.
-3. Sensitivity-test the archetype parameters in `archetypes.py` - since Result 6's ranking is more defensible than its exact percentages, it's worth checking whether the ranking holds under different plausible parameter choices.
-4. Increase `COHORT_SIZE` in `config.py` if smoother retention curves are needed for a presentation - 20 was chosen for fast iteration, not final precision.
