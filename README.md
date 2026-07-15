@@ -1,6 +1,6 @@
 # Power Token Simulation v2: Baseline Sweep + Gamification Tapering
 
-Extends the original 3-model simulation into two new experiments requested by the team:
+Extends the original 3-model simulation into two new experiments:
 
 1. **Macro simulation:** tests a "no baseline" reward model (every verified sustainable
    trip earns Power) against a **light-baseline** model where only a portion of the
