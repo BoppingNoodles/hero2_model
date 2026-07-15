@@ -82,12 +82,3 @@ This is a direct answer to the team's core question: gamification mechanics (str
 
 **Caveat on Result 6:** the gap between "most resilient" and "least resilient" archetypes (99.5% vs 91.8%) is smaller than might be expected. This is a direct consequence of how the archetypes were parameterized (see `archetypes.py`) - the sensitivity and decay multipliers are assumptions, not calibrated to real user data. A team member reviewing this should treat the *ranking* (Gamer/Mover most resilient, Earner least) as the more defensible takeaway than the exact percentages.
 
-## Key assumptions worth flagging in any write-up
-
-- **Cohort-based, not individual-based:** each persona x archetype combination is simulated as a cohort of independent synthetic individuals (default 20), not a single user. Retention is the fraction of that cohort still above an engagement threshold (0.2) each week.
-- **Archetype parameters are assumptions.** Reward sensitivity, gamification sensitivity, habit-conversion probability, and post-incentive decay have no real user data behind them - they were constructed to be internally consistent with each archetype's definition (see docstrings in `archetypes.py`), not fit to observed behavior.
-- **"Additional trips" is a simple proxy** (actual mode ≠ persona's stated true baseline mode), not a causal estimate. Treat the ~67% figure directionally, not as a precise additionality number.
-- **Leaderboard bonuses are not modeled.** Challenge Power currently only includes streak and trip-count milestones - leaderboard placement would require simulating a full population competing at the same time, which this one-user-at-a-time simulation structure doesn't support. Flagged as a known gap.
-- **Habit conversion (21-day streak threshold) is a commonly cited but contested heuristic**, not validated for this specific app or user base.
-- **The later "session-level" model** (when users open the app, per-interaction Power timing) was intentionally not built yet, per the team's own instruction that it should estimate parameters for this macro model rather than be built in parallel.
-
